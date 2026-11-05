@@ -2,7 +2,7 @@ name: Kindle sector board
 
 on:
   schedule:
-    - cron: "*/15 13-22 * * 1-5"   # every 15 min, Mon-Fri, covers 9am-5pm ET all year
+    - cron: "7-59/15 13-22 * * 1-5"   # every 15 min, Mon-Fri, covers 9am-5pm ET all year
   workflow_dispatch:                # "Run workflow" button for a manual refresh
 
 permissions:

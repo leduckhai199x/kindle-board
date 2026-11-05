@@ -12,11 +12,12 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false   # a long run finishes instead of being cancelled by the next one
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: github-pages
     env:
@@ -30,19 +31,28 @@ jobs:
           cache: pip
           cache-dependency-path: .github/workflows/kindle-board.yml
       - run: pip install yfinance pandas matplotlib streamlit plotly requests
-      - name: Today's date
-        id: d
-        run: echo "today=$(date +%F)" >> "$GITHUB_OUTPUT"
-      - name: Keep SEC filings + holdings between runs
-        uses: actions/cache@v4
+      - name: Restore SEC filings + holdings from earlier runs
+        uses: actions/cache/restore@v4
         with:
           path: |
             sec_cache
             holdings_cache.json
-          key: scanner-data-${{ steps.d.outputs.today }}
+          key: scanner-data-${{ github.run_id }}
           restore-keys: scanner-data-
-      - run: python kindle_page.py
+      - name: Build pages
+        id: build
+        run: python kindle_page.py
+      - name: Save SEC filings + holdings (even if a later step fails)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            sec_cache
+            holdings_cache.json
+          key: scanner-data-${{ github.run_id }}
       - uses: actions/upload-pages-artifact@v3
+        if: steps.build.outputs.publish != 'false'
         with:
           path: site
       - uses: actions/deploy-pages@v4
+        if: steps.build.outputs.publish != 'false'

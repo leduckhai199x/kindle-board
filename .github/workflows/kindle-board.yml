@@ -1,0 +1,48 @@
+name: Kindle sector board
+
+on:
+  schedule:
+    - cron: "*/15 13-22 * * 1-5"   # every 15 min, Mon-Fri, covers 9am-5pm ET all year
+  workflow_dispatch:                # "Run workflow" button for a manual refresh
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    env:
+      TZ: America/New_York                       # scanner's "today" = New York date
+      SEC_CONTACT: ${{ secrets.SEC_CONTACT }}    # "Your Name you@example.com" for SEC EDGAR
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: .github/workflows/kindle-board.yml
+      - run: pip install yfinance pandas matplotlib streamlit plotly requests
+      - name: Today's date
+        id: d
+        run: echo "today=$(date +%F)" >> "$GITHUB_OUTPUT"
+      - name: Keep SEC filings + holdings between runs
+        uses: actions/cache@v4
+        with:
+          path: |
+            sec_cache
+            holdings_cache.json
+          key: scanner-data-${{ steps.d.outputs.today }}
+          restore-keys: scanner-data-
+      - run: python kindle_page.py
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4

@@ -35,7 +35,7 @@ SHORT = {"Information Technology": "Technology", "Communication Services": "Comm
 
 # ---------------------------------------------------------------- text helpers
 # E-ink and the Kindle font can't show color emoji: turn them into words.
-EMOJI_WORDS = [("⚠️", "(!)"), ("⚠", "(!)"), ("🚩", "RED FLAG:"), ("🏛️", "[policy]"),
+EMOJI_WORDS = [("ℹ️", "Note:"), ("ℹ", "Note:"), ("⚠️", "(!)"), ("⚠", "(!)"), ("🚩", "RED FLAG:"), ("🏛️", "[policy]"),
                ("🏛", "[policy]"), ("📅", "[earnings]"), ("⏳", "(pending)"), ("📄", ""),
                ("📰", ""), ("🟢", "good"), ("🟡", "ok"), ("🔴", "weak"), ("⚪", "")]
 EMOJI_RE = re.compile("[\U0001F000-\U0001FFFF☀-➿️]")
@@ -87,6 +87,10 @@ def gather():
     today = dt.date.today()
     history, live = sc.sector_fetch()
     table = sc.compute_table(history, live, today)
+    num = [c for c in table.columns if c not in ("Ticker", "Sector")]
+    table[num] = table[num].apply(pd.to_numeric, errors="coerce")
+    if table.empty:
+        return None
     contact = sc.sec_contact()
     holdings, errors, sources, closes, bundles, caps = sc.deep_fetch(
         tuple(sc.SECTOR_ETFS), include_stmts=True,
@@ -194,7 +198,7 @@ def make_chart(s, sym, path):
     ax.plot(s6.index, s6.values, color="black", lw=2.2, label="Price", zorder=3)
     ax.set_title(f"{sym}  {s6.iloc[-1]:.2f}   6 months · Fib = % of 6-mo range",
                  fontsize=11, loc="left", fontweight="bold")
-    ax.legend(loc="upper left", fontsize=9, frameon=False)
+    ax.legend(loc="best", fontsize=9, framealpha=0.9, edgecolor="#000")
     ax2.bar(h6.index, h6.values, width=1.0, color=["black" if v >= 0 else "#8a8a8a" for v in h6.values])
     ax2.plot(l6.index, l6.values, color="black", lw=1.1)
     ax2.plot(sg6.index, sg6.values, color="#666", lw=1.1, ls="--")
@@ -352,15 +356,25 @@ def main():
         install_demo()
     d = gather()
     now = dt.datetime.now()
+    if d is None:
+        # Yahoo sent no sector prices (it sometimes limits cloud servers like GitHub's).
+        # Don't publish an empty board: the last good one stays online.
+        print("::warning::Yahoo returned no sector prices this run - kept the last published page.")
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                fh.write("publish=false\n")
+        return
 
     for sub in ("s", "t", "img"):
         os.makedirs(os.path.join(OUT, sub), exist_ok=True)
-    for etf in sc.SECTOR_ETFS:
-        if etf in d["history"].columns and d["history"][etf].dropna().shape[0] >= 30:
-            make_chart(d["history"][etf], etf, f"{OUT}/img/{etf}.png")
-    for sym, r in d["stocks"].items():
-        if r["series"] is not None and len(r["series"]) >= 30:
-            make_chart(r["series"], sym, f"{OUT}/img/{sym}.png")
+    series = {etf: d["history"][etf] for etf in sc.SECTOR_ETFS if etf in d["history"].columns}
+    series.update({sym: r["series"] for sym, r in d["stocks"].items() if r["series"] is not None})
+    for sym, s in series.items():
+        if s.dropna().shape[0] >= 30:
+            try:
+                make_chart(s, sym, f"{OUT}/img/{sym}.png")
+            except Exception as exc:
+                print(f"chart {sym} skipped: {exc}")
 
     def write(path, text):
         with open(os.path.join(OUT, path), "w", encoding="utf-8") as fh:
